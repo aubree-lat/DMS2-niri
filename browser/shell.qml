@@ -996,7 +996,7 @@ ShellRoot {
                     anchors.right: parent.right
                     anchors.rightMargin: 24
                     anchors.verticalCenter: parent.verticalCenter
-                    text: app.status !== "" ? app.status : "type to filter · f2 rename · del trash · ctrl+h hidden"
+                    text: app.status !== "" ? app.status : "esc back · type to filter · f2 rename · del trash · ctrl+q quit"
                     color: app.status !== "" ? app.cyan : "#6a6a6a"
                     font.family: "Rounded Mplus 1c"
                     font.pixelSize: 12
@@ -1166,7 +1166,10 @@ ShellRoot {
         event.accepted = true;
         if (picking) {
             if (event.key === Qt.Key_Escape && !filter) {
-                cancelPick();
+                if (backStack.length)
+                    goBack();
+                else
+                    cancelPick();
                 return;
             }
             if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && (ctrl || pickMode === "folder" && !(current && current.isDir))) {
@@ -1237,11 +1240,12 @@ ShellRoot {
                 return;
             }
         case Qt.Key_Escape:
+            // Back to where you were (like a browser's back button), never quit.
             if (filter) {
                 filter = "";
                 return;
             }
-            Qt.quit();
+            goBack();
             return;
         case Qt.Key_F2:
             askRename();

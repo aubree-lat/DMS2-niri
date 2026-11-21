@@ -95,7 +95,8 @@ their own. gtk apps are pointed at it with `GTK_USE_PORTAL=1` and `GDK_DEBUG=por
 the kde platform theme keep their own dialog.
 
 picker keys: enter opens or saves, ctrl + enter chooses, space or ctrl + click marks
-several files, f3 switches file type, tab jumps to the name field, esc cancels.
+several files, f3 switches file type, tab jumps to the name field, esc steps back and
+cancels once there is nowhere left to go back to.
 
 ## uninstall
 
@@ -141,7 +142,8 @@ it was checked against recordings of the real bios running in pcsx2:
 arrows            move
 enter             open
 backspace         up a folder
-alt + left/right  back / forward
+esc               back to where you were (alt + left does the same)
+alt + right       forward
 type              filter
 ctrl + h          show hidden files
 f2                rename
@@ -153,7 +155,7 @@ ctrl + e          open in your file manager
 ctrl + l          go to a path
 tab               places
 right click       menu with all of the above
-esc               quit
+ctrl + q          quit
 ```
 
 ## settings
