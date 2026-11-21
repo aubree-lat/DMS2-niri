@@ -1,24 +1,37 @@
 # dms2-niri
 
 a playstation 2 bios inspired look for dankmaterialshell on niri. menu sounds,
-an animated crystal clock background, a system configuration style lock screen,
-a boot animation, a file browser, and a theme to tie it together.
+an animated crystal clock background, a purple prism lock screen, a boot animation,
+a file browser that also works as your file picker, and a theme to tie it together.
 
 unofficial fan project, not affiliated with sony. no sony audio or art is included
 in this repo. see the sounds section.
+
+![desktop](docs/screenshots/desktop.jpg)
+
+| | |
+|---|---|
+| ![file browser](docs/screenshots/browser.png) | ![file picker](docs/screenshots/file-picker.png) |
+| file browser | file picker (open, save, folders) |
+| ![lock screen](docs/screenshots/lock-system-configuration.jpg) | ![boot animation](docs/screenshots/boot.jpg) |
+| lock screen, system configuration style | boot animation |
+
+![fastfetch](docs/screenshots/fastfetch.png)
 
 ## what you get
 
 - desktop background: a live crystal clock. twelve prisms are the hours, the current
   one lights up and fills with the minutes, orbs circle the middle.
-- lock screen: styled after the system configuration screen. date and time bars,
-  tumbling glass cubes over the blurred clock, a password prompt with button hints.
+- lock screen: tumbling glass cubes over the clock, tinted purple and blurred. two
+  styles in the plugin settings: classic (time and date in the corner, the default)
+  or system configuration (date and time bars, title, button hints).
 - boot animation: plays once per login, before the shell has loaded. click or press
   any key to skip.
 - sounds: ps2 menu sounds on popouts, the app launcher (moving and launching),
   workspace switches, new windows, lock and unlock, notifications and volume.
 - file browser (`ps2-browser`): styled after the bios browser screen. grid of tiles,
-  places, thumbnails, rename, trash, new folder, filter, and ps2 sounds.
+  places, thumbnails, rename, trash, new folder, filter, and ps2 sounds. it can be
+  your default file manager and the file picker apps open (see below).
 - theme: black and sky cyan like the main menu, a rounded font, crisp corners,
   frosted glass popouts, a plain black bar.
 - optional: fetch and fastfetch configs with an ascii crystal clock.
@@ -51,6 +64,7 @@ options:
 ./install.sh --bios FILE   decode sounds from this bios dump
 ./install.sh --no-bios     skip the bios step
 ./install.sh --fetch       also write fetch and fastfetch configs
+./install.sh --no-default  don't offer to make ps2-browser the default file manager
 ```
 
 what "apply the look" changes: the dms theme, font, corner radius, animation speed,
@@ -58,6 +72,24 @@ blur, bar style, lock screen widgets, wallpaper and system sound theme, plus two
 in `~/.config/niri/config.kdl` (one to start the boot animation, one to make the
 backdrop black). every line it adds is tagged `// ps2Bios`. your keybinds are not touched.
 the originals are backed up the first time.
+
+## default file manager and file picker
+
+the installer asks whether ps2-browser should be your default. you can also run
+`./scripts/default-browser.sh enable` (or `disable`) any time. enabling it:
+
+- opens folders in ps2-browser
+- handles "show in folder" from apps, through `org.freedesktop.FileManager1`
+- answers open and save dialogs through xdg-desktop-portal, with open, open several,
+  choose folder and save modes, file type filters and a replace prompt
+
+the first two are per-user. the file picker needs one small file in
+`/usr/share/xdg-desktop-portal/portals`, so the script prints a single sudo command for
+it. after running that, log out and back in. until then dialogs keep using your
+previous picker (kde, then gtk).
+
+picker keys: enter opens or saves, ctrl + enter chooses, space or ctrl + click marks
+several files, f3 switches file type, tab jumps to the name field, esc cancels.
 
 ## uninstall
 
@@ -97,7 +129,7 @@ it was checked against recordings of the real bios running in pcsx2:
   bios menu program switches on the spu2 noise generator for it, so that part is
   rebuilt from the recording rather than decoded.
 
-## file browser keys
+## file browser keys (normal mode)
 
 ```
 arrows            move
@@ -131,12 +163,13 @@ replay the boot animation with `dms ipc call ps2bios intro`, or play any sound w
 ```
 plugin/ps2Bios/    dms plugin: sound daemon, clock background, lock screen, boot animation
 theme/ps2Bios/     dms color theme
-browser/           the file browser (quickshell)
+browser/           the file browser (quickshell), its d-bus service and portal file
 intro/             standalone boot animation started by niri
 fetch/             fetch and fastfetch config generator
 scripts/           install, look, revert, sound pack and bios extraction scripts
 tools/             bios unpacking and spu2 rendering tools
 wallpapers/        a still of the clock for the overview and login screen
+docs/screenshots/  the images in this readme
 ```
 
 shader previews: copy `scripts/preview/shell.qml` into an empty folder and run

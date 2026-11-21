@@ -33,6 +33,9 @@ DesktopPluginComponent {
     readonly property bool followTheme: opt("followTheme", false)
     readonly property bool showClockText: opt("showClockText", root.lockScreen)
     readonly property bool use24h: opt("clock24h", SettingsData.use24HourClock ?? true)
+    // "classic": time/date bottom-left over the purple backdrop; "sysconfig": the
+    // System Configuration screen (bars, title, option label, prompts).
+    readonly property bool sysConfigLock: root.lockScreen && opt("lockStyle", "classic") === "sysconfig"
 
     // On the lock screen the scene takes the System Configuration screen's purple.
     readonly property color prismA: root.lockScreen ? "#5560e6" : (followTheme ? Theme.primary : "#5a6cf0")
@@ -99,6 +102,7 @@ DesktopPluginComponent {
         visible: root.lockScreen
         animate: root.lockScreen && root.animating
         use24h: root.use24h
+        chrome: root.sysConfigLock
     }
 
     Timer {
@@ -111,7 +115,7 @@ DesktopPluginComponent {
     }
 
     Column {
-        visible: root.showClockText && !root.lockScreen
+        visible: root.showClockText && !root.sysConfigLock
         anchors.left: parent.left
         anchors.bottom: parent.bottom
         anchors.margins: Math.round(root.height * 0.06)

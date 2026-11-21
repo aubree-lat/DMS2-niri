@@ -1,0 +1,228 @@
+#!/usr/bin/python3 -I
+"""d-bus side of the ps2 browser.
+
+- org.freedesktop.FileManager1: "show in folder" / "open folder" requests from
+  apps (browsers' download bars, etc.) open the ps2 browser.
+- org.freedesktop.impl.portal.FileChooser (bus name
+  org.freedesktop.impl.portal.desktop.ps2browser): xdg-desktop-portal's file
+  picker backend. each request runs the browser in picker mode and returns the
+  chosen files.
+
+started on demand by d-bus activation (see install-files.sh).
+"""
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+from urllib.parse import quote, unquote, urlparse
+
+import gi
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib  # noqa: E402
+
+BROWSER = shutil.which("ps2-browser") or os.path.expanduser("~/.local/bin/ps2-browser")
+
+FM_XML = """
+<node>
+  <interface name="org.freedesktop.FileManager1">
+    <method name="ShowFolders"><arg type="as" direction="in"/><arg type="s" direction="in"/></method>
+    <method name="ShowItems"><arg type="as" direction="in"/><arg type="s" direction="in"/></method>
+    <method name="ShowItemProperties"><arg type="as" direction="in"/><arg type="s" direction="in"/></method>
+  </interface>
+</node>"""
+
+FC_XML = """
+<node>
+  <interface name="org.freedesktop.impl.portal.FileChooser">
+    <method name="OpenFile">
+      <arg type="o" direction="in"/><arg type="s" direction="in"/><arg type="s" direction="in"/>
+      <arg type="s" direction="in"/><arg type="a{sv}" direction="in"/>
+      <arg type="u" direction="out"/><arg type="a{sv}" direction="out"/>
+    </method>
+    <method name="SaveFile">
+      <arg type="o" direction="in"/><arg type="s" direction="in"/><arg type="s" direction="in"/>
+      <arg type="s" direction="in"/><arg type="a{sv}" direction="in"/>
+      <arg type="u" direction="out"/><arg type="a{sv}" direction="out"/>
+    </method>
+    <method name="SaveFiles">
+      <arg type="o" direction="in"/><arg type="s" direction="in"/><arg type="s" direction="in"/>
+      <arg type="s" direction="in"/><arg type="a{sv}" direction="in"/>
+      <arg type="u" direction="out"/><arg type="a{sv}" direction="out"/>
+    </method>
+  </interface>
+</node>"""
+
+REQUEST_XML = """
+<node>
+  <interface name="org.freedesktop.impl.portal.Request">
+    <method name="Close"/>
+  </interface>
+</node>"""
+
+
+def to_path(uri):
+    if uri.startswith("file://"):
+        return unquote(urlparse(uri).path)
+    return uri
+
+
+def to_uri(path):
+    return "file://" + quote(path)
+
+
+def bytes_path(v):
+    """Portal paths arrive as NUL-terminated byte arrays (a GVariant 'ay').
+
+    Read them with get_bytestring() while the message is alive: unpack()ing
+    bytestrings nested in the options dict can hand back freed memory.
+    """
+    if v is None:
+        return ""
+    return v.get_bytestring().decode("utf-8", "surrogateescape")
+
+
+def opt_paths(opts_v, key):
+    v = opts_v.lookup_value(key, None)
+    if v is None:
+        return []
+    if v.get_type_string() == "ay":
+        return [bytes_path(v)]
+    return [bytes_path(v.get_child_value(i)) for i in range(v.n_children())]
+
+
+def spawn_browser(target):
+    subprocess.Popen([BROWSER, target], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+# ---------------------------------------------------------------- file manager
+def on_fm_call(conn, sender, path, iface, method, params, invocation):
+    uris, _startup = params.unpack()
+    for uri in uris:
+        spawn_browser(to_path(uri))
+    invocation.return_value(None)
+
+
+# ---------------------------------------------------------------- file chooser
+class Request:
+    """One picker run; answers the portal when the browser exits."""
+
+    def __init__(self, conn, handle, invocation, env, save_files=None):
+        self.conn = conn
+        self.invocation = invocation
+        self.save_files = save_files
+        fd, self.result = tempfile.mkstemp(prefix="ps2-pick-")
+        os.close(fd)
+        os.unlink(self.result)
+        env = dict(os.environ, **env, PS2_BROWSER_RESULT=self.result)
+        self.proc = subprocess.Popen([BROWSER, env.get("PS2_BROWSER_DIR", os.path.expanduser("~"))],
+                                     env=env, start_new_session=True,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        node = Gio.DBusNodeInfo.new_for_xml(REQUEST_XML)
+        try:
+            self.reg = conn.register_object(handle, node.interfaces[0], self.on_request_call, None, None)
+        except GLib.Error:
+            self.reg = 0
+        GLib.child_watch_add(GLib.PRIORITY_DEFAULT, self.proc.pid, self.on_exit)
+        self.closed = False
+
+    def on_request_call(self, conn, sender, path, iface, method, params, invocation):
+        if method == "Close":
+            self.closed = True
+            try:
+                os.killpg(self.proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            invocation.return_value(None)
+
+    def on_exit(self, pid, status):
+        paths = []
+        if os.path.exists(self.result):
+            with open(self.result, encoding="utf-8", errors="surrogateescape") as f:
+                paths = [line for line in f.read().split("\n") if line]
+            os.unlink(self.result)
+        if self.reg:
+            self.conn.unregister_object(self.reg)
+        if self.closed or not paths:
+            self.invocation.return_value(GLib.Variant("(ua{sv})", (1, {})))
+            return
+        if self.save_files is not None:
+            folder = paths[0]
+            paths = [os.path.join(folder, name) for name in self.save_files]
+        results = {"uris": GLib.Variant("as", [to_uri(p) for p in paths])}
+        self.invocation.return_value(GLib.Variant("(ua{sv})", (0, results)))
+
+
+def picker_env(mode, title, options, opts_v):
+    env = {"PS2_BROWSER_PICK": mode, "PS2_BROWSER_TITLE": title or ""}
+    if options.get("multiple"):
+        env["PS2_BROWSER_MULTIPLE"] = "1"
+    if options.get("directory"):
+        env["PS2_BROWSER_PICK"] = "folder"
+    if "accept_label" in options:
+        env["PS2_BROWSER_ACCEPT"] = options["accept_label"].replace("_", "")
+    folder = (opt_paths(opts_v, "current_folder") or [""])[0]
+    current_file = (opt_paths(opts_v, "current_file") or [""])[0]
+    if current_file:
+        folder = os.path.dirname(current_file)
+        env["PS2_BROWSER_SAVE_NAME"] = os.path.basename(current_file)
+    if "current_name" in options:
+        env["PS2_BROWSER_SAVE_NAME"] = options["current_name"]
+    if folder and os.path.isdir(folder):
+        env["PS2_BROWSER_DIR"] = folder
+    filters = []
+    for name, rules in options.get("filters", []):
+        globs = [pat for kind, pat in rules if kind == 0]
+        if globs:
+            filters.append([name, globs])
+    if filters:
+        env["PS2_BROWSER_FILTERS"] = json.dumps(filters)
+    return env
+
+
+def on_fc_call(conn, sender, path, iface, method, params, invocation):
+    handle = params.get_child_value(0).get_string()
+    title = params.get_child_value(3).get_string()
+    opts_v = params.get_child_value(4)
+    options = {k: v for k, v in params.unpack()[4].items() if k not in ("current_folder", "current_file", "files")}
+    if method == "OpenFile":
+        Request(conn, handle, invocation, picker_env("open", title, options, opts_v))
+    elif method == "SaveFile":
+        Request(conn, handle, invocation, picker_env("save", title, options, opts_v))
+    elif method == "SaveFiles":
+        names = [os.path.basename(n) for n in opt_paths(opts_v, "files") if n]
+        env = picker_env("folder", title, options, opts_v)
+        Request(conn, handle, invocation, env, save_files=names)
+    else:
+        invocation.return_value(GLib.Variant("(ua{sv})", (2, {})))
+
+
+# ---------------------------------------------------------------- main
+def main():
+    loop = GLib.MainLoop()
+    fm_node = Gio.DBusNodeInfo.new_for_xml(FM_XML)
+    fc_node = Gio.DBusNodeInfo.new_for_xml(FC_XML)
+    only = sys.argv[1] if len(sys.argv) > 1 else "all"
+
+    def on_bus(conn, name):
+        if only in ("all", "filemanager"):
+            conn.register_object("/org/freedesktop/FileManager1", fm_node.interfaces[0], on_fm_call, None, None)
+        if only in ("all", "portal"):
+            conn.register_object("/org/freedesktop/portal/desktop", fc_node.interfaces[0], on_fc_call, None, None)
+
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    on_bus(bus, None)
+    flags = Gio.BusNameOwnerFlags.REPLACE | Gio.BusNameOwnerFlags.ALLOW_REPLACEMENT
+    if only in ("all", "filemanager"):
+        Gio.bus_own_name_on_connection(bus, "org.freedesktop.FileManager1", flags, None, None)
+    if only in ("all", "portal"):
+        Gio.bus_own_name_on_connection(bus, "org.freedesktop.impl.portal.desktop.ps2browser", flags, None, None)
+    loop.run()
+
+
+if __name__ == "__main__":
+    main()

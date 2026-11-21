@@ -7,12 +7,13 @@
 #   ./install.sh --bios FILE   decode sounds from this ps2 bios dump
 #   ./install.sh --no-bios     skip the bios sound step
 #   ./install.sh --fetch       also write the fetch and fastfetch configs
+#   ./install.sh --no-default  don't offer to make ps2-browser the default file manager
 #
 # undo everything with ./uninstall.sh
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
-yes=0 look=1 bios="" use_bios=1 fetch=0
+yes=0 look=1 bios="" use_bios=1 fetch=0 default=1
 while (( $# )); do
     case $1 in
         -y | --yes) yes=1 ;;
@@ -20,7 +21,8 @@ while (( $# )); do
         --bios) bios=${2:?--bios needs a file}; shift ;;
         --no-bios) use_bios=0 ;;
         --fetch) fetch=1 ;;
-        -h | --help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --no-default) default=0 ;;
+        -h | --help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $1 (see --help)" >&2; exit 1 ;;
     esac
     shift
@@ -102,6 +104,17 @@ if (( look )); then
         dms restart >/dev/null 2>&1 || true
     else
         echo "skipped. run ./scripts/apply-look.sh later"
+    fi
+fi
+
+# ---- default file manager + file picker ----
+if (( default )); then
+    say "ps2-browser can be your default file manager and the file picker apps open"
+    echo "(folders, 'show in folder', and open/save dialogs through xdg-desktop-portal)."
+    if ask "make it the default?"; then
+        "$here/scripts/default-browser.sh" enable
+    else
+        echo "skipped. run ./scripts/default-browser.sh enable later"
     fi
 fi
 

@@ -90,10 +90,7 @@ write_json "$settings" '
   # so the stock clock (which would get auto-placed onto the password box) goes off.
   | .lockScreenWidgetInstances = (((.lockScreenWidgetInstances // [])
         | map(select(.id != "ps2_scene_lock"))
-        | map(if .widgetType == "desktopClock" then .enabled = false else . end)
-        # System Configuration look: the password is a plain row of dots under the
-        # cyan "Password" option the scene draws.
-        | map(if .widgetType == "lockAuth" then .config.style = "dots" else . end))
+        | map(if .widgetType == "desktopClock" then .enabled = false else . end))
         + [scene("ps2_scene_lock"; {showClockText: true})])
 '
 
@@ -130,20 +127,6 @@ PY
         echo "niri rejected the edited config, restoring it" >&2
         cp -a "$niri_cfg.ps2-original" "$niri_cfg"
     }
-fi
-
-# Lock status (media, network) moves into the bottom letterbox bar's right corner so
-# it doesn't sit on the time in the top bar. Positions live in session.json, which
-# DMS rewrites on exit, so edit it while DMS is stopped.
-session=${XDG_STATE_HOME:-$HOME/.local/state}/DankMaterialShell/session.json
-if [[ -f "$session" ]]; then
-    [[ -f "$session.ps2-original" ]] || cp -a "$session" "$session.ps2-original"
-    was_running=0
-    systemctl --user is-active --quiet dms && was_running=1
-    (( was_running )) && systemctl --user stop dms
-    write_json "$session" '.desktopWidgetInstancePositions.lock_status._synced =
-        {x: 0.016, y: 0.03, anchorX: "end", anchorY: "end"}'
-    (( was_running )) && systemctl --user start dms
 fi
 
 if command -v gsettings >/dev/null; then

@@ -75,6 +75,30 @@ PluginSettings {
 
     StyledText {
         width: parent.width
+        text: "Lock screen"
+        font.pixelSize: Theme.fontSizeLarge
+        font.weight: Theme.fontWeightMedium
+        color: Theme.surfaceText
+    }
+    SelectionSetting {
+        settingKey: "lockStyle"
+        label: "Lock screen style"
+        description: "Both use the purple prism backdrop with glass cubes"
+        options: [
+            {
+                label: "Classic (time and date in the corner)",
+                value: "classic"
+            },
+            {
+                label: "System Configuration (bars, title, prompts)",
+                value: "sysconfig"
+            }
+        ]
+        defaultValue: "classic"
+    }
+
+    StyledText {
+        width: parent.width
         text: "Crystal clock scene"
         font.pixelSize: Theme.fontSizeLarge
         font.weight: Theme.fontWeightMedium

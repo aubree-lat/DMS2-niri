@@ -17,6 +17,7 @@ config=${XDG_CONFIG_HOME:-$HOME/.config}
 dms_dir=${DMS_CONFIG_DIR:-$config/DankMaterialShell}
 
 echo ":: restoring your original settings"
+"$here/scripts/default-browser.sh" disable || true
 "$here/scripts/revert-look.sh"
 
 echo ":: removing files"

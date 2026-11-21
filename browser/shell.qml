@@ -28,6 +28,93 @@ ShellRoot {
     property int placeIndex: 0
     property string status: ""
 
+    // ---- picker mode (run by ps2-browser-service for the file chooser portal) ----
+    readonly property string pickMode: Quickshell.env("PS2_BROWSER_PICK") || ""  // open | save | folder
+    readonly property bool picking: pickMode !== ""
+    readonly property bool pickMultiple: Quickshell.env("PS2_BROWSER_MULTIPLE") === "1" && pickMode === "open"
+    readonly property string pickTitle: Quickshell.env("PS2_BROWSER_TITLE") || (pickMode === "save" ? "Save As" : (pickMode === "folder" ? "Choose Folder" : (pickMultiple ? "Open Files" : "Open File")))
+    readonly property string acceptLabel: Quickshell.env("PS2_BROWSER_ACCEPT") || (pickMode === "save" ? "Save" : (pickMode === "folder" ? "Choose" : "Open"))
+    readonly property string resultPath: Quickshell.env("PS2_BROWSER_RESULT") || ""
+    readonly property var pickFilters: {
+        try {
+            return JSON.parse(Quickshell.env("PS2_BROWSER_FILTERS") || "[]");
+        } catch (e) {
+            return [];
+        }
+    }
+    property int filterIndex: 0
+    property var marked: ({})
+    readonly property int markedCount: Object.keys(marked).length
+    property string saveName: Quickshell.env("PS2_BROWSER_SAVE_NAME") || ""
+
+    function globMatch(name, globs) {
+        return globs.some(g => {
+            const re = new RegExp("^" + g.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i");
+            return re.test(name);
+        });
+    }
+
+    function toggleMark(e) {
+        if (!pickMultiple || !e || e.isDir)
+            return;
+        const m = Object.assign({}, marked);
+        if (m[e.path])
+            delete m[e.path];
+        else
+            m[e.path] = true;
+        marked = m;
+        sfx.play("key");
+    }
+
+    function finishPick(paths) {
+        sfx.play("launch");
+        if (!resultPath) {
+            console.log("picked:", JSON.stringify(paths));
+            Qt.quit();
+            return;
+        }
+        run(["sh", "-c", "printf '%s\\n' \"$@\" > \"$0\"", resultPath].concat(paths), () => Qt.quit());
+    }
+
+    function acceptPick() {
+        if (pickMode === "folder") {
+            finishPick([dir]);
+        } else if (pickMode === "save") {
+            const name = saveName.trim();
+            if (!name || name.indexOf("/") >= 0) {
+                sfx.play("error");
+                flash("type a file name first");
+                return;
+            }
+            const target = (dir === "/" ? "" : dir) + "/" + name;
+            run(["test", "-e", target], code => {
+                if (code === 0) {
+                    sfx.play("modal_open");
+                    dialog.mode = "overwrite";
+                    dialog.pendingPath = target;
+                    dialog.open("Replace file?", name + " already exists here.", "", false, "replace", true);
+                } else {
+                    finishPick([target]);
+                }
+            });
+        } else {
+            const paths = markedCount ? Object.keys(marked) : (current && !current.isDir ? [current.path] : []);
+            if (!paths.length) {
+                if (current && current.isDir)
+                    go(current.path);
+                else
+                    sfx.play("error");
+                return;
+            }
+            finishPick(paths);
+        }
+    }
+
+    function cancelPick() {
+        sfx.play("popout_close");
+        Qt.quit();
+    }
+
     readonly property var current: grid.currentIndex >= 0 && grid.currentIndex < entries.length ? entries[grid.currentIndex] : null
     readonly property string dirName: dir === "/" ? "/" : (dir === home ? "home" : dir.slice(dir.lastIndexOf("/") + 1))
 
@@ -63,6 +150,7 @@ ShellRoot {
         }
         filter = "";
         filtering = false;
+        marked = ({});
         pendingSelect = opts.select || "";
         dir = path;
         sfx.play(opts.back ? "popout_close" : "launch");
@@ -114,6 +202,15 @@ ShellRoot {
             return;
         if (e.isDir) {
             go(e.path);
+        } else if (picking) {
+            if (pickMode === "save") {
+                saveName = e.name;
+                nameInput.forceActiveFocus();
+            } else if (pickMultiple && markedCount) {
+                acceptPick();
+            } else {
+                finishPick([e.path]);
+            }
         } else {
             sfx.play("launch");
             Quickshell.execDetached(["xdg-open", e.path]);
@@ -152,6 +249,7 @@ ShellRoot {
     }
 
     onFilterChanged: rebuild.restart()
+    onFilterIndexChanged: rebuild.restart()
 
     function rebuildEntries() {
         const keepName = pendingSelect || (current ? current.name : "");
@@ -161,6 +259,14 @@ ShellRoot {
             const name = folder.get(i, "fileName");
             if (f && name.toLowerCase().indexOf(f) < 0)
                 continue;
+            if (picking) {
+                const isDir = folder.get(i, "fileIsDir");
+                if (pickMode === "folder" && !isDir)
+                    continue;
+                const active = pickFilters[filterIndex];
+                if (!isDir && active && !globMatch(name, active[1]))
+                    continue;
+            }
             list.push({
                 name: name,
                 path: folder.get(i, "filePath"),
@@ -274,6 +380,10 @@ ShellRoot {
 
     function onDialogAccepted(value) {
         const target = current;
+        if (dialog.mode === "overwrite") {
+            finishPick([dialog.pendingPath]);
+            return;
+        }
         if (dialog.mode === "trash" && target) {
             run(["dms", "trash", "put", target.path], (code, err) => {
                 if (code === 0) {
@@ -414,7 +524,7 @@ ShellRoot {
 
     FloatingWindow {
         id: win
-        title: "PS2 Browser · " + app.dir
+        title: (app.picking ? app.pickTitle + " · " : "PS2 Browser · ") + app.dir
         implicitWidth: 1220
         implicitHeight: 780
         color: "#000000"
@@ -650,8 +760,13 @@ ShellRoot {
                             index: parent.index
                             home: app.home
                             selected: grid.currentIndex === parent.index && !app.placesFocused
+                            marked: app.marked[parent.modelData.path] === true
                             onClicked: mouse => {
                                 app.placesFocused = false;
+                                if (app.pickMultiple && (mouse.modifiers & Qt.ControlModifier))
+                                    app.toggleMark(parent.modelData);
+                                if (app.pickMode === "save" && !parent.modelData.isDir)
+                                    app.saveName = parent.modelData.name;
                                 grid.currentIndex = parent.index;
                                 mainFocus.forceActiveFocus();
                                 if (mouse.button === Qt.RightButton)
@@ -698,14 +813,14 @@ ShellRoot {
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 0
                     Text {
-                        text: app.dirName
-                        color: "#c8c8c8"
+                        text: app.picking ? app.pickTitle : app.dirName
+                        color: app.picking ? app.yellow : "#c8c8c8"
                         font.family: "Rounded Mplus 1c"
                         font.pixelSize: 28
                         font.weight: Font.Medium
                     }
                     Text {
-                        text: app.dir + (app.showHidden ? "   ·   hidden shown" : "") + "   ·   " + app.entries.length + (app.entries.length === 1 ? " item" : " items")
+                        text: app.dir + (app.showHidden ? "   ·   hidden shown" : "") + "   ·   " + app.entries.length + (app.entries.length === 1 ? " item" : " items") + (app.markedCount ? "   ·   " + app.markedCount + " selected" : "")
                         color: "#7a7a7a"
                         font.family: "Rounded Mplus 1c"
                         font.pixelSize: 13
@@ -721,7 +836,7 @@ ShellRoot {
                     horizontalAlignment: Text.AlignRight
                     elide: Text.ElideMiddle
                     text: app.filtering || app.filter ? "Filter: " + app.filter + (app.filtering ? "▏" : "") : (app.current ? app.current.name : "")
-                    color: app.filtering || app.filter ? app.cyan : app.yellow
+                    color: app.filtering || app.filter ? app.cyan : (app.picking ? "#ffffff" : app.yellow)
                     font.family: "Rounded Mplus 1c"
                     font.pixelSize: 28
                     font.weight: Font.Medium
@@ -736,6 +851,7 @@ ShellRoot {
                 color: "#000000"
 
                 Row {
+                    visible: !app.picking
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.horizontalCenterOffset: -root.width * 0.12
                     anchors.verticalCenter: parent.verticalCenter
@@ -762,7 +878,121 @@ ShellRoot {
                         }
                     }
                 }
+                // Picker controls: name field (save), file type (F3), cancel / accept.
+                Row {
+                    visible: app.picking
+                    x: 24
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 22
+                    Row {
+                        visible: app.pickMode === "save"
+                        spacing: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Name"
+                            color: app.cyan
+                            font.family: "Rounded Mplus 1c"
+                            font.pixelSize: 18
+                        }
+                        Rectangle {
+                            width: Math.min(420, root.width * 0.3)
+                            height: 38
+                            radius: 3
+                            color: "#141414"
+                            border.width: 1
+                            border.color: nameInput.activeFocus ? app.cyan : "#40ffffff"
+                            TextInput {
+                                id: nameInput
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                verticalAlignment: TextInput.AlignVCenter
+                                text: app.saveName
+                                onTextEdited: app.saveName = text
+                                color: "#ffffff"
+                                selectionColor: "#1d5fd6"
+                                font.family: "Rounded Mplus 1c"
+                                font.pixelSize: 16
+                                clip: true
+                                Keys.onPressed: event => {
+                                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                        app.acceptPick();
+                                        event.accepted = true;
+                                    } else if (event.key === Qt.Key_Escape) {
+                                        app.cancelPick();
+                                        event.accepted = true;
+                                    } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Down) {
+                                        mainFocus.forceActiveFocus();
+                                        event.accepted = true;
+                                    }
+                                }
+                                Component.onCompleted: if (app.pickMode === "save") {
+                                    forceActiveFocus();
+                                    const dot = text.lastIndexOf(".");
+                                    select(0, dot > 0 ? dot : text.length);
+                                }
+                            }
+                        }
+                    }
+                    Text {
+                        visible: app.pickFilters.length > 0
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Type: " + (app.pickFilters[app.filterIndex] ? app.pickFilters[app.filterIndex][0] : "") + (app.pickFilters.length > 1 ? "  (f3)" : "")
+                        color: "#d8d8d8"
+                        font.family: "Rounded Mplus 1c"
+                        font.pixelSize: 16
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: app.filterIndex = (app.filterIndex + 1) % Math.max(1, app.pickFilters.length)
+                        }
+                    }
+                    Text {
+                        visible: app.pickMultiple
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "space or ctrl+click to select several"
+                        color: "#6a6a6a"
+                        font.family: "Rounded Mplus 1c"
+                        font.pixelSize: 13
+                    }
+                }
+                Row {
+                    visible: app.picking
+                    anchors.right: parent.right
+                    anchors.rightMargin: 24
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 14
+                    Repeater {
+                        model: [["Cancel", false], [app.acceptLabel, true]]
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: Math.max(120, label.implicitWidth + 40)
+                            height: 40
+                            radius: 3
+                            color: modelData[1] ? (btn.containsMouse ? "#5cdbff" : app.cyan) : (btn.containsMouse ? "#2a2a2a" : "#161616")
+                            border.width: 1
+                            border.color: modelData[1] ? app.cyan : "#50ffffff"
+                            Text {
+                                id: label
+                                anchors.centerIn: parent
+                                text: modelData[0]
+                                color: modelData[1] ? "#001b29" : "#e0e0e0"
+                                font.family: "Rounded Mplus 1c"
+                                font.pixelSize: 17
+                                font.weight: Font.Medium
+                            }
+                            MouseArea {
+                                id: btn
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: modelData[1] ? app.acceptPick() : app.cancelPick()
+                            }
+                        }
+                    }
+                }
                 Text {
+                    visible: !app.picking || app.status !== ""
+                    z: 2
                     anchors.right: parent.right
                     anchors.rightMargin: 24
                     anchors.verticalCenter: parent.verticalCenter
@@ -851,6 +1081,7 @@ ShellRoot {
             GlassDialog {
                 id: dialog
                 property string mode: ""
+                property string pendingPath: ""
                 onAccepted: value => app.onDialogAccepted(value)
                 onRejected: {
                     sfx.play("modal_close");
@@ -860,8 +1091,10 @@ ShellRoot {
 
             Item {
                 id: mainFocus
-                focus: true
-                Component.onCompleted: forceActiveFocus()
+                focus: app.pickMode !== "save"
+                // In save mode the name field keeps the initial focus.
+                Component.onCompleted: if (app.pickMode !== "save")
+                    forceActiveFocus()
                 Keys.onPressed: event => app.handleKey(event)
             }
         }
@@ -931,6 +1164,29 @@ ShellRoot {
             }
         }
         event.accepted = true;
+        if (picking) {
+            if (event.key === Qt.Key_Escape && !filter) {
+                cancelPick();
+                return;
+            }
+            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && (ctrl || pickMode === "folder" && !(current && current.isDir))) {
+                acceptPick();
+                return;
+            }
+            if (event.key === Qt.Key_Space && pickMultiple) {
+                toggleMark(current);
+                return;
+            }
+            if (event.key === Qt.Key_F3 && pickFilters.length > 1) {
+                filterIndex = (filterIndex + 1) % pickFilters.length;
+                sfx.play("navigate");
+                return;
+            }
+            if (event.key === Qt.Key_Tab && pickMode === "save") {
+                nameInput.forceActiveFocus();
+                return;
+            }
+        }
         switch (event.key) {
         case Qt.Key_Left:
             if (alt)

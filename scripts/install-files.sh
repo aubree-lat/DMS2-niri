@@ -65,6 +65,7 @@ rm -rf "$browser_dst/shaders"
 cp -f "$here"/browser/{shell.qml,Tile.qml,GlassDialog.qml,OrbGyro.qml,Icons.js} "$browser_dst/"
 ln -sfn "$plugin_dst/sounds" "$browser_dst/sounds"
 install -Dm755 "$here/browser/ps2-browser" "$HOME/.local/bin/ps2-browser"
+install -Dm755 "$here/browser/ps2-browser-service" "$HOME/.local/bin/ps2-browser-service"
 install -Dm644 "$here/browser/ps2-browser.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/applications/ps2-browser.desktop"
 command -v update-desktop-database >/dev/null && update-desktop-database "${XDG_DATA_HOME:-$HOME/.local/share}/applications" 2>/dev/null || true
 

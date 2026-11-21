@@ -11,6 +11,7 @@ Item {
     required property var entry
     required property int index
     property bool selected: false
+    property bool marked: false
     property bool dimmed: false
     property string home: ""
 
@@ -116,6 +117,28 @@ Item {
             Behavior on border.color {
                 ColorAnimation {
                     duration: 200
+                }
+            }
+
+            // Picked (multi-select): a cyan check in the corner.
+            Rectangle {
+                visible: tile.marked
+                z: 5
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: -7
+                width: 24
+                height: 24
+                radius: 12
+                color: "#38cefa"
+                border.width: 2
+                border.color: "#001b29"
+                Text {
+                    anchors.centerIn: parent
+                    text: "✓"
+                    color: "#001b29"
+                    font.pixelSize: 14
+                    font.bold: true
                 }
             }
 
