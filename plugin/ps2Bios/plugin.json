@@ -1,0 +1,20 @@
+{
+    "id": "ps2Bios",
+    "name": "PS2 BIOS",
+    "description": "PlayStation 2 BIOS-inspired sounds for shell interactions, plus an animated crystal clock for the desktop and lock screen",
+    "version": "1.0.0",
+    "author": "aubree",
+    "type": "composite",
+    "capabilities": ["daemon", "desktop-widget", "sounds"],
+    "icon": "videogame_asset",
+    "components": {
+        "daemon": "./Ps2Daemon.qml",
+        "desktop": "./Ps2ClockScene.qml"
+    },
+    "settings": "./Ps2Settings.qml",
+    "requires_dms": ">=2.1.0",
+    "permissions": [
+        "settings_read",
+        "settings_write"
+    ]
+}

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=PS2 Browser
+GenericName=File Browser
+Comment=Browse files in the PS2 BIOS look
+Exec=ps2-browser %U
+Icon=system-file-manager
+Terminal=false
+Categories=System;FileManager;Utility;
+MimeType=inode/directory;
+StartupNotify=false

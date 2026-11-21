@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# ps2-browser [folder | file | file:// URI]
+# Opens the PS2 Browser at a folder; given a file, opens its folder with it selected.
+set -euo pipefail
+target=${1:-$HOME}
+if [[ $target == file://* ]]; then
+    target=$(python3 -I -c 'import sys, urllib.parse; print(urllib.parse.unquote(urllib.parse.urlparse(sys.argv[1]).path))' "$target")
+fi
+target=$(realpath -m -- "$target")
+if [[ -f $target ]]; then
+    export PS2_BROWSER_SELECT=${target##*/}
+    target=${target%/*}
+fi
+export PS2_BROWSER_DIR=$target
+exec qs -p "${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/ps2-browser" >/dev/null 2>&1
