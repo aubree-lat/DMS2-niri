@@ -88,6 +88,12 @@ the first two are per-user. the file picker needs one small file in
 it. after running that, log out and back in. until then dialogs keep using your
 previous picker (kde, then gtk).
 
+which apps use the picker: chromium based browsers and flatpak apps ask the portal on
+their own. gtk apps are pointed at it with `GTK_USE_PORTAL=1` and `GDK_DEBUG=portals` in
+`~/.config/environment.d` (after your next login). firefox needs
+`widget.use-xdg-desktop-portal.file-picker` set to 1 in `about:config`. qt apps using
+the kde platform theme keep their own dialog.
+
 picker keys: enter opens or saves, ctrl + enter chooses, space or ctrl + click marks
 several files, f3 switches file type, tab jumps to the name field, esc cancels.
 

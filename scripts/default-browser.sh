@@ -8,7 +8,8 @@
 #   - folders open in ps2-browser (xdg-mime default for inode/directory)
 #   - "show in folder" requests from apps go to it (org.freedesktop.FileManager1,
 #     a d-bus activation file in ~/.local/share/dbus-1/services)
-#   - file open/save dialogs use it (xdg-desktop-portal FileChooser). this one
+#   - file open/save dialogs use it (xdg-desktop-portal FileChooser, plus
+#     GTK_USE_PORTAL/GDK_DEBUG in ~/.config/environment.d so gtk apps ask). this one
 #     needs ps2browser.portal in /usr/share/xdg-desktop-portal/portals, which
 #     takes sudo; the command is printed if it isn't there yet.
 set -euo pipefail
@@ -23,6 +24,8 @@ desktop=${desktop%%:*}
 portals_conf=$config/xdg-desktop-portal/${desktop,,}-portals.conf
 system_portal=/usr/share/xdg-desktop-portal/portals/ps2browser.portal
 service_bin=$HOME/.local/bin/ps2-browser-service
+# gtk apps outside flatpak only ask the portal for file dialogs when told to
+gtk_env=$config/environment.d/96-ps2-file-picker.conf
 
 backup() { [[ -e $1 && ! -e $1.ps2-original ]] && cp -a "$1" "$1.ps2-original" || true; }
 restore() {
@@ -59,9 +62,13 @@ enable() {
     else
         printf '[preferred]\norg.freedesktop.impl.portal.FileChooser=ps2browser;kde;gtk;\n' >> "$portals_conf"
     fi
+    mkdir -p "$(dirname "$gtk_env")"
+    printf '# written by dms2-niri scripts/default-browser.sh\nGTK_USE_PORTAL=1\nGDK_DEBUG=portals\n' > "$gtk_env"
+    systemctl --user set-environment GTK_USE_PORTAL=1 GDK_DEBUG=portals 2>/dev/null || true
+
     if [[ -f $system_portal ]]; then
         systemctl --user restart xdg-desktop-portal 2>/dev/null || true
-        echo ":: file dialogs use ps2-browser"
+        echo ":: file dialogs use ps2-browser (gtk apps after your next login)"
     else
         echo ":: file dialogs need one system file. run this, then log out and back in"
         echo "   (or: systemctl --user restart xdg-desktop-portal):"
@@ -82,6 +89,8 @@ disable() {
     rm -f "$services/org.freedesktop.impl.portal.desktop.ps2browser.service"
     pkill -f '^/usr/bin/python3 -I [^ ]*/ps2-browser-servic[e]$' 2>/dev/null || true
     [[ -e $portals_conf.ps2-original || -e $portals_conf ]] && restore "$portals_conf"
+    rm -f "$gtk_env"
+    systemctl --user unset-environment GTK_USE_PORTAL GDK_DEBUG 2>/dev/null || true
     systemctl --user restart xdg-desktop-portal 2>/dev/null || true
     echo ":: file manager and file dialogs restored"
     if [[ -f $system_portal ]]; then
