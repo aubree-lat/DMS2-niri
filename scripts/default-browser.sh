@@ -3,6 +3,8 @@
 #
 #   default-browser.sh enable
 #   default-browser.sh disable
+#   default-browser.sh picker-off   keep it as file manager, dialogs go back to kde/gtk
+#   default-browser.sh picker-on    dialogs use it again
 #
 # enable does three things (each backed up first):
 #   - folders open in ps2-browser (xdg-mime default for inode/directory)
@@ -99,8 +101,34 @@ disable() {
     fi
 }
 
+picker_off() {
+    if [[ -f $portals_conf ]]; then
+        sed -i 's/^org.freedesktop.impl.portal.FileChooser=.*/org.freedesktop.impl.portal.FileChooser=kde;gtk;/' "$portals_conf"
+    fi
+    rm -f "$gtk_env"
+    systemctl --user unset-environment GTK_USE_PORTAL GDK_DEBUG 2>/dev/null || true
+    # values that came from environment.d at login only go away at the next login;
+    # blank them meanwhile (gtk treats empty as off)
+    dbus-update-activation-environment --systemd GTK_USE_PORTAL= GDK_DEBUG= 2>/dev/null || true
+    systemctl --user restart xdg-desktop-portal 2>/dev/null || true
+    echo ":: file dialogs back to kde (dolphin style), gtk apps use their own after your next login"
+}
+
+picker_on() {
+    if [[ -f $portals_conf ]]; then
+        sed -i 's/^org.freedesktop.impl.portal.FileChooser=.*/org.freedesktop.impl.portal.FileChooser=ps2browser;kde;gtk;/' "$portals_conf"
+    fi
+    mkdir -p "$(dirname "$gtk_env")"
+    printf '# written by dms2-niri scripts/default-browser.sh\nGTK_USE_PORTAL=1\nGDK_DEBUG=portals\n' > "$gtk_env"
+    systemctl --user set-environment GTK_USE_PORTAL=1 GDK_DEBUG=portals 2>/dev/null || true
+    systemctl --user restart xdg-desktop-portal 2>/dev/null || true
+    echo ":: file dialogs use ps2-browser"
+}
+
 case ${1:-} in
     enable) enable ;;
     disable) disable ;;
-    *) echo "usage: $0 enable|disable" >&2; exit 1 ;;
+    picker-off) picker_off ;;
+    picker-on) picker_on ;;
+    *) echo "usage: $0 enable|disable|picker-off|picker-on" >&2; exit 1 ;;
 esac

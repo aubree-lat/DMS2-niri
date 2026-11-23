@@ -88,6 +88,9 @@ the first two are per-user. the file picker needs one small file in
 it. after running that, log out and back in. until then dialogs keep using your
 previous picker (kde, then gtk).
 
+to keep ps2-browser as your file manager but go back to the kde (dolphin style) file
+dialog, run `./scripts/default-browser.sh picker-off` (`picker-on` switches back).
+
 which apps use the picker: chromium based browsers and flatpak apps ask the portal on
 their own. gtk apps are pointed at it with `GTK_USE_PORTAL=1` and `GDK_DEBUG=portals` in
 `~/.config/environment.d` (after your next login). firefox needs
